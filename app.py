@@ -1,867 +1,687 @@
 """
-AI-POWERED MOVIE RECOMMENDATION SYSTEM (CineAI)
-Production-Ready Full-Stack Web Application for College Project Demonstration.
-Integrates Content-Based, Collaborative Filtering, Hybrid Engine, SQLite DB, and Interactive Playground.
+CineAI — Netflix-Grade AI Movie Recommendation Platform
+Premium streaming UI: top navbar, hero banner, horizontal rows, detail panels.
 """
-import os
-import sys
-import json
+import os, sys, json
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Set page config
 st.set_page_config(
-    page_title="CineAI | Intelligent Movie Recommender",
+    page_title="CineAI",
     page_icon="🎬",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# Ensure project root is in sys.path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.recommendation import MovieRecommendationSystem
 from src.database import (
-    init_db,
-    get_or_create_user,
-    list_users,
-    get_user_preferences,
-    save_user_preferences,
-    save_user_rating,
-    delete_user_rating,
-    get_user_ratings
+    init_db, get_or_create_user, list_users,
+    get_user_preferences, save_user_preferences,
+    save_user_rating, delete_user_rating, get_user_ratings
 )
 
-# Load custom CSS
+# ── Load CSS ──
 css_path = os.path.join(BASE_DIR, "assets", "styles.css")
 if os.path.exists(css_path):
     with open(css_path, "r", encoding="utf-8") as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# Cache Recommender System instance
-@st.cache_resource(show_spinner="🎬 Initializing CineAI Engine & Machine Learning Models...")
+# ── Engine ──
+@st.cache_resource(show_spinner="Loading CineAI Engine...")
 def get_engine():
     init_db()
-    engine = MovieRecommendationSystem()
-    engine.train_or_load_models()
-    return engine
+    e = MovieRecommendationSystem()
+    e.train_or_load_models()
+    return e
 
 engine = get_engine()
 
-# Load Offline Evaluation Metrics
+# Evaluation metrics
 eval_metrics = {}
-eval_path = os.path.join(BASE_DIR, "docs", "evaluation_results.json")
-if os.path.exists(eval_path):
+ep = os.path.join(BASE_DIR, "docs", "evaluation_results.json")
+if os.path.exists(ep):
     try:
-        with open(eval_path, "r", encoding="utf-8") as f:
+        with open(ep, "r") as f:
             eval_metrics = json.load(f)
     except Exception:
         pass
 
-# -------------------------------------------------------------
-# SIDEBAR: USER SELECTION & NAVIGATION
-# -------------------------------------------------------------
-st.sidebar.markdown("""
-<div style="text-align: center; padding: 10px 0 16px;">
-    <h2 style="color: #e50914; margin-bottom: 2px; font-weight: 800; letter-spacing: -0.5px;">🎬 CineAI</h2>
-    <p style="color: #a0aec0; font-size: 0.82rem; margin: 0;">AI Movie Recommendation Platform</p>
-</div>
-""", unsafe_allow_html=True)
+# SVG fallback
+FALLBACK_SVG = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 450'%3E%3Crect width='300' height='450' fill='%23181818'/%3E%3Ctext x='150' y='210' text-anchor='middle' fill='%23444' font-size='52'%3E🎬%3C/text%3E%3Ctext x='150' y='255' text-anchor='middle' fill='%23555' font-size='13' font-family='Arial'%3ENo Poster%3C/text%3E%3C/svg%3E"
 
-# User Profile Switcher
-st.sidebar.subheader("👤 User Profile")
+# ── Session State ──
+if "page" not in st.session_state:
+    st.session_state["page"] = "HOME"
+if "detail_movie" not in st.session_state:
+    st.session_state["detail_movie"] = None
+
+# ── User ──
 all_users = list_users()
 user_names = [u['username'] for u in all_users] if all_users else ["demo_cinephile"]
+if "username" not in st.session_state:
+    st.session_state["username"] = user_names[0]
+user_id = get_or_create_user(st.session_state["username"])
 
-selected_username = st.sidebar.selectbox("Active Profile", user_names, index=0)
-user_id = get_or_create_user(selected_username)
-
-# Create New User Form
-with st.sidebar.expander("➕ Create New Profile"):
-    new_user_input = st.text_input("New Username", placeholder="e.g. maya_films")
-    if st.button("Add User", key="btn_add_user"):
-        if new_user_input.strip():
-            new_uid = get_or_create_user(new_user_input.strip())
-            st.success(f"Profile '{new_user_input.strip()}' created!")
-            st.rerun()
-
-# User Quick Stats in Sidebar
-user_ratings = get_user_ratings(user_id)
-user_prefs = get_user_preferences(user_id)
-st.sidebar.markdown(f"""
-<div style="background: rgba(255,255,255,0.03); border: 1px solid #2d3748; border-radius: 8px; padding: 12px; margin: 10px 0 18px;">
-    <div style="font-size: 0.8rem; color: #a0aec0;">Profile: <strong style="color: #fff;">{selected_username}</strong></div>
-    <div style="font-size: 0.8rem; color: #a0aec0; margin-top: 4px;">Rated Movies: <strong style="color: #ffb800;">{len(user_ratings)}</strong></div>
-    <div style="font-size: 0.8rem; color: #a0aec0; margin-top: 4px;">Fav Genres: <strong style="color: #e50914;">{len(user_prefs.get('favorite_genres', []))}</strong></div>
-</div>
-""", unsafe_allow_html=True)
-
-# Navigation
-st.sidebar.subheader("🧭 Navigation")
-nav_options = [
-    "🏠 Home & Trending",
-    "🔍 Search & Rate Movies",
-    "🎯 AI Recommendations",
-    "⚙️ My Preferences",
-    "📊 User Dashboard",
-    "🧪 AI Model Explanation & Architecture",
-    "🔬 Interactive Model Playground"
+# ══════════════════════════════════════════════════════════
+# NAVIGATION BAR (HTML + hidden Streamlit buttons)
+# ══════════════════════════════════════════════════════════
+NAV_ITEMS = [
+    ("HOME", "Home"),
+    ("SEARCH", "Search"),
+    ("AI RECS", "AI Picks"),
+    ("PREFERENCES", "Preferences"),
+    ("DASHBOARD", "Dashboard"),
+    ("AI ARCH", "AI Lab"),
+    ("PLAYGROUND", "Playground"),
 ]
+active_page = st.session_state["page"]
+avatar_letter = st.session_state["username"][0].upper()
 
-# Query parameter integration for direct navigation and screenshot capture
-query_nav = st.query_params.get("nav", "")
-default_nav_idx = 0
-if "search" in query_nav.lower() or "rate" in query_nav.lower():
-    default_nav_idx = 1
-elif "rec" in query_nav.lower():
-    default_nav_idx = 2
-elif "pref" in query_nav.lower():
-    default_nav_idx = 3
-elif "dash" in query_nav.lower():
-    default_nav_idx = 4
-elif "expl" in query_nav.lower() or "arch" in query_nav.lower():
-    default_nav_idx = 5
-elif "play" in query_nav.lower():
-    default_nav_idx = 6
+links_html = ""
+for key, label in NAV_ITEMS:
+    cls = "cai-nav-link active" if key == active_page else "cai-nav-link"
+    links_html += f'<span class="{cls}">{label}</span>'
 
-nav_choice = st.sidebar.radio(
-    "Go to",
-    nav_options,
-    index=default_nav_idx
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-<div style="font-size: 0.72rem; color: #718096; line-height: 1.5;">
-    <strong>CineAI Architecture:</strong><br/>
-    • TF-IDF & Cosine Similarity<br/>
-    • Item-Item Collaborative Filtering<br/>
-    • TruncatedSVD Matrix Factorization<br/>
-    • Dynamic Hybrid Cold-Start Blending<br/>
-    • MovieLens (100k Ratings, 9.7k Movies)<br/>
-    • SQLite3 Database
+st.markdown(f"""
+<div class="cai-navbar">
+    <div class="cai-nav-logo">CineAI</div>
+    <div class="cai-nav-links">{links_html}</div>
+    <div class="cai-nav-profile">
+        <div class="cai-nav-avatar">{avatar_letter}</div>
+        <div class="cai-nav-username">{st.session_state["username"]}</div>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Helper function to render a movie card grid
-def render_movie_card(movie: dict, col, key_prefix: str = "card"):
+# Functional nav buttons (tiny, hidden via CSS)
+nav_cols = st.columns(len(NAV_ITEMS) + 1)
+for i, (key, label) in enumerate(NAV_ITEMS):
+    with nav_cols[i]:
+        if st.button(label, key=f"nav_{key}"):
+            st.session_state["page"] = key
+            st.session_state["detail_movie"] = None
+            st.rerun()
+# Profile popover
+with nav_cols[-1]:
+    with st.popover("👤"):
+        un = st.selectbox(
+            "Switch Profile", user_names,
+            index=user_names.index(st.session_state["username"]) if st.session_state["username"] in user_names else 0,
+            key="prof_sel"
+        )
+        if un != st.session_state["username"]:
+            st.session_state["username"] = un
+            st.rerun()
+        nu = st.text_input("New profile name", key="new_u", placeholder="Enter username")
+        if st.button("Create Profile", key="create_u"):
+            if nu.strip():
+                get_or_create_user(nu.strip())
+                st.session_state["username"] = nu.strip()
+                st.rerun()
+        ur = get_user_ratings(user_id)
+        up = get_user_preferences(user_id)
+        st.caption(f"Rated: {len(ur)} · Genres: {len(up.get('favorite_genres', []))}")
+
+# ══════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════
+
+def section_title(title):
+    st.markdown(f'<div class="cai-section-title">{title}</div>', unsafe_allow_html=True)
+
+
+def render_card(movie, col, prefix="c"):
+    """Render a single movie card in the given column."""
     mid = movie['movieId']
     title = movie.get('clean_title') or movie.get('title', 'Untitled')
     year = movie.get('year', '')
     genres = movie.get('genres', '')
-    clean_genres = genres.replace('|', ' • ')
-    if len(clean_genres) > 28:
-        clean_genres = clean_genres[:25] + "..."
     rating = movie.get('avg_rating', 0.0)
     poster = movie.get('poster_url', '')
     reason = movie.get('recommendation_reason', '')
-
-    reason_html = f"<div class='rec-reason-badge'>💡 {reason}</div>" if reason else ""
+    match_pct = min(99, max(65, int(rating * 20)))
+    genre_list = genres.split('|')[:3] if genres else []
+    cg = genres.replace('|', ' · ')
+    if len(cg) > 30:
+        cg = cg[:27] + "..."
+    tags_html = "".join([f'<span class="cai-card-tag">{g.strip()}</span>' for g in genre_list])
+    reason_html = f'<div class="cai-card-reason">💡 {reason}</div>' if reason else ""
 
     with col:
         st.markdown(f"""
-        <div class="movie-card">
-            <div class="movie-poster-wrap">
-                <img src="{poster}" alt="{title}" loading="lazy"/>
-            </div>
-            <div class="movie-info">
-                <div>
-                    <div class="movie-title" title="{title}">{title}</div>
-                    <div class="movie-meta">
-                        <span class="movie-rating">★ {rating:.1f}</span>
-                        <span class="movie-year">{year if year else 'N/A'}</span>
+        <div class="cai-card">
+            <div class="cai-card-poster">
+                <img src="{poster}" alt="{title}" loading="lazy" onerror="this.onerror=null;this.src='{FALLBACK_SVG}'"/>
+                <div class="cai-card-play">▶</div>
+                <div class="cai-card-match">{match_pct}% Match</div>
+                <div class="cai-card-overlay">
+                    <div class="cai-card-overlay-title">{title}</div>
+                    <div class="cai-card-overlay-meta">
+                        <span style="color:#46d369;font-weight:700;">{match_pct}%</span>
+                        <span style="color:#999;">{year}</span>
+                        <span style="color:#f5c518;font-weight:700;">★ {rating:.1f}</span>
                     </div>
-                    <div class="movie-genre-tags" title="{genres}">{clean_genres}</div>
-                    {reason_html}
+                    <div class="cai-card-overlay-tags">{tags_html}</div>
+                </div>
+            </div>
+            <div class="cai-card-info">
+                <div class="cai-card-title" title="{title}">{title}</div>
+                <div class="cai-card-meta">
+                    <span class="cai-card-rating">★ {rating:.1f}</span>
+                    <span class="cai-card-year">{year if year else '—'}</span>
+                </div>
+                <div class="cai-card-genres">{cg}</div>
+                {reason_html}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Details", key=f"{prefix}_{mid}"):
+            st.session_state["detail_movie"] = mid
+            st.rerun()
+
+
+def render_movie_row(title, movies, prefix, limit=6):
+    """Render a section header + row of movie cards."""
+    if not movies:
+        return
+    section_title(title)
+    n = min(len(movies), limit)
+    cols = st.columns(n)
+    for i, m in enumerate(movies[:n]):
+        render_card(m, cols[i], prefix=f"{prefix}_{i}")
+
+
+def render_detail(mid, uid, sfx=""):
+    """Render the detail panel for a selected movie."""
+    m = engine.get_movie_details(mid)
+    if not m:
+        return
+    st.markdown("---")
+    # Close button
+    if st.button("✕ Close Details", key=f"close_{sfx}"):
+        st.session_state["detail_movie"] = None
+        st.rerun()
+
+    st.markdown('<div class="cai-detail-panel">', unsafe_allow_html=True)
+
+    d1, d2 = st.columns([1, 2])
+    with d1:
+        st.image(m['poster_url'], use_container_width=True)
+    with d2:
+        mp = min(99, max(65, int(m['avg_rating'] * 20)))
+        gl = m['genres'].split('|')
+        tags = "".join([f'<span class="cai-detail-tag">{g.strip()}</span>' for g in gl])
+        st.markdown(f"""
+        <div class="cai-detail-title">{m['clean_title']}</div>
+        <div style="display:flex;gap:16px;align-items:center;margin:8px 0 16px;flex-wrap:wrap;">
+            <span style="color:#46d369;font-weight:900;font-size:1.2rem;">{mp}% Match</span>
+            <span style="color:#999;">{m.get('year', '')}</span>
+            <span style="color:#f5c518;font-weight:900;font-size:1.1rem;">★ {m['avg_rating']:.2f}</span>
+            <span style="color:#666;font-size:0.85rem;">{m['rating_count']} ratings</span>
+        </div>
+        <div style="margin-bottom:14px;">{tags}</div>
+        """, unsafe_allow_html=True)
+        if m.get('tags'):
+            st.markdown(f"**Keywords:** `{m['tags']}`")
+        st.markdown(f"**Quality Score:** `{m['weighted_rating']:.2f}`")
+        st.markdown("#### ⭐ Rate This Movie")
+        curr = {r['movie_id']: r['rating'] for r in get_user_ratings(uid)}
+        ex = curr.get(mid, 3.5)
+        nr = st.slider("Rating", 1.0, 5.0, float(ex), 0.5, key=f"sl_{mid}_{sfx}", label_visibility="collapsed")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Save Rating", key=f"sv_{mid}_{sfx}"):
+                save_user_rating(uid, mid, nr)
+                st.success(f"Saved {nr}★!")
+                st.rerun()
+        with c2:
+            if mid in curr:
+                if st.button("Remove Rating", key=f"rm_{mid}_{sfx}"):
+                    delete_user_rating(uid, mid)
+                    st.rerun()
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Similar movies
+    section_title(f"More Like \"{m['clean_title']}\"")
+    sims = engine.get_similar_movies(mid, top_n=6)
+    if sims:
+        sc = st.columns(min(len(sims), 6))
+        for i, sm in enumerate(sims[:6]):
+            render_card(sm, sc[i], prefix=f"sim{sfx}_{i}")
+
+
+# ══════════════════════════════════════════════════════════
+# PAGE: HOME
+# ══════════════════════════════════════════════════════════
+if active_page == "HOME":
+    # ── Hero Banner ──
+    hero = engine.get_movie_details(318)  # Shawshank Redemption
+    if not hero:
+        hero = engine.get_movie_details(2571) or engine.get_movie_details(858)
+    if hero:
+        hg = hero['genres'].replace('|', ' · ')
+        hp = min(99, int(hero['avg_rating'] * 20))
+        st.markdown(f"""
+        <div class="cai-hero" style="background-image:url('{hero['poster_url']}');">
+            <div class="cai-hero-gradient"></div>
+            <div class="cai-hero-body">
+                <div class="cai-hero-badge">AI Top Pick</div>
+                <div class="cai-hero-title">{hero['clean_title']}</div>
+                <div class="cai-hero-desc">
+                    A powerful story of hope and perseverance behind bars. This masterpiece is rated
+                    ★ {hero['avg_rating']:.1f} by {hero['rating_count']} viewers and remains one of the
+                    highest-rated films of all time.
+                </div>
+                <div class="cai-hero-meta">
+                    <span style="color:#46d369;font-weight:800;">{hp}% Match</span>
+                    <span style="color:#999;">{hero.get('year', '')}</span>
+                    <span style="color:#f5c518;font-weight:700;">★ {hero['avg_rating']:.1f}</span>
+                    <span style="color:#999;">{hg}</span>
+                </div>
+                <div class="cai-hero-actions">
+                    <span class="cai-hero-btn-play">▶ Explore</span>
+                    <span class="cai-hero-btn-info">ℹ More Info</span>
                 </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
+        if st.button("▶ Explore This Movie", key="hero_btn"):
+            st.session_state["detail_movie"] = hero['movieId']
+            st.rerun()
 
-        btn_col1, btn_col2 = st.columns([1, 1])
-        with btn_col1:
-            if st.button("Details", key=f"{key_prefix}_det_{mid}", use_container_width=True):
-                st.session_state["selected_movie_id"] = mid
-        with btn_col2:
-            if st.button("Similar", key=f"{key_prefix}_sim_{mid}", use_container_width=True):
-                st.session_state["similar_to_movie_id"] = mid
-                st.session_state["nav_to_similar"] = True
+    # ── Movie Rows ──
+    render_movie_row("🔥 Trending Now", engine.get_popular_and_trending(limit=12), "trend")
+    render_movie_row("⭐ Top Rated", engine.get_popular_and_trending(limit=12), "top")
+    render_movie_row("💥 Action & Adventure", engine.get_popular_and_trending(genre="Action", limit=12), "act")
+    render_movie_row("😂 Comedy", engine.get_popular_and_trending(genre="Comedy", limit=12), "com")
+    render_movie_row("🎭 Drama", engine.get_popular_and_trending(genre="Drama", limit=12), "dra")
+    render_movie_row("🚀 Sci-Fi", engine.get_popular_and_trending(genre="Sci-Fi", limit=12), "sci")
+    render_movie_row("🎸 Romance", engine.get_popular_and_trending(genre="Romance", limit=12), "rom")
+    render_movie_row("⚡ Thriller", engine.get_popular_and_trending(genre="Thriller", limit=12), "thr")
 
-# -------------------------------------------------------------
-# TAB 1: HOME & TRENDING
-# -------------------------------------------------------------
-if nav_choice == "🏠 Home & Trending":
-    # Hero Banner
-    st.markdown("""
-    <div class="hero-container">
-        <span class="hero-badge">AI Recommendation Engine</span>
-        <h1 class="hero-title">Discover Movies Tailored to Your Taste</h1>
-        <p class="hero-subtitle">
-            Harnessing Content-Based TF-IDF vectorization and Item-Item Collaborative Filtering
-            on the MovieLens dataset. Experience personalized recommendations, genre matching, and ratings.
-        </p>
-        <div class="hero-stats">
-            <div class="hero-stat-item">🎬 <strong>9,742</strong> Movies</div>
-            <div class="hero-stat-item">⭐ <strong>100,836</strong> Ratings</div>
-            <div class="hero-stat-item">🧠 <strong>3</strong> Recommender Algorithms</div>
-            <div class="hero-stat-item">⚡ <strong>Real-time</strong> SQLite Persistence</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    if st.session_state.get("detail_movie"):
+        render_detail(st.session_state["detail_movie"], user_id, "home")
 
-    # Genre quick filter
-    st.subheader("🔥 Explore by Genre")
-    genre_options = ["All"] + engine.all_genres
-    selected_home_genre = st.selectbox("Filter Genre", genre_options, index=0, label_visibility="collapsed")
+# ══════════════════════════════════════════════════════════
+# PAGE: SEARCH
+# ══════════════════════════════════════════════════════════
+elif active_page == "SEARCH":
+    section_title("🔍 Search & Discover")
+    st.caption("Search 9,700+ movies by title, genre, or minimum rating.")
+    s1, s2, s3 = st.columns([3, 1, 1])
+    with s1:
+        q = st.text_input("Search", placeholder="Matrix, Inception, Batman...", label_visibility="collapsed")
+    with s2:
+        sg = st.selectbox("Genre", ["All"] + engine.all_genres, index=0, label_visibility="collapsed")
+    with s3:
+        mr = st.slider("Min Rating", 0.0, 5.0, 0.0, 0.5)
 
-    # Trending & Popular Section
-    st.markdown(f"### 🌟 Top Rated & Trending Movies ({selected_home_genre})")
-    st.caption("Ranked using the IMDB Bayesian Weighted Rating formula: WR = (v / (v + m)) * R + (m / (v + m)) * C")
-
-    trending_movies = engine.get_popular_and_trending(genre=selected_home_genre, limit=12)
-
-    cols = st.columns(4)
-    for idx, movie in enumerate(trending_movies):
-        render_movie_card(movie, cols[idx % 4], key_prefix=f"trend_{idx}")
-
-    # Modal / Expanded Movie Details if clicked
-    if "selected_movie_id" in st.session_state and st.session_state["selected_movie_id"]:
-        sel_mid = st.session_state["selected_movie_id"]
-        m_details = engine.get_movie_details(sel_mid)
-        if m_details:
-            st.markdown("---")
-            st.markdown("### 🎬 Movie Spotlight")
-            dcol1, dcol2 = st.columns([1, 2])
-            with dcol1:
-                st.image(m_details['poster_url'], use_container_width=True)
-            with dcol2:
-                st.markdown(f"## {m_details['clean_title']} ({m_details['year']})")
-                st.markdown(f"**Genres:** {m_details['genres'].replace('|', ', ')}")
-                st.markdown(f"**Community Rating:** ★ **{m_details['avg_rating']:.2f}** / 5.0 ({m_details['rating_count']} ratings)")
-                st.markdown(f"**Weighted Quality Score:** {m_details['weighted_rating']:.2f}")
-                if m_details['tags']:
-                    st.markdown(f"**Keywords / Tags:** `{m_details['tags']}`")
-
-                # Interactive User Rating
-                st.markdown("#### ⭐ Rate This Movie")
-                curr_ratings = {r['movie_id']: r['rating'] for r in get_user_ratings(user_id)}
-                existing_rating = curr_ratings.get(sel_mid, 3.5)
-
-                new_r = st.slider(
-                    "Your Rating (1.0 to 5.0 stars)", 
-                    min_value=1.0, 
-                    max_value=5.0, 
-                    value=float(existing_rating), 
-                    step=0.5,
-                    key=f"slider_rate_{sel_mid}"
-                )
-                rcol1, rcol2 = st.columns(2)
-                with rcol1:
-                    if st.button("💾 Save Rating", key=f"btn_save_r_{sel_mid}", use_container_width=True):
-                        save_user_rating(user_id, sel_mid, new_r)
-                        st.success(f"Saved {new_r}★ rating for '{m_details['clean_title']}'!")
-                        st.rerun()
-                with rcol2:
-                    if sel_mid in curr_ratings:
-                        if st.button("🗑️ Remove Rating", key=f"btn_del_r_{sel_mid}", use_container_width=True):
-                            delete_user_rating(user_id, sel_mid)
-                            st.info("Rating deleted.")
-                            st.rerun()
-
-            # Find similar
-            st.markdown(f"#### 🎭 Movies Similar to *{m_details['clean_title']}*")
-            sim_movies = engine.get_similar_movies(sel_mid, top_n=4)
-            sim_cols = st.columns(4)
-            for sidx, sm in enumerate(sim_movies):
-                render_movie_card(sm, sim_cols[sidx % 4], key_prefix=f"sim_spot_{sidx}")
-
-# -------------------------------------------------------------
-# TAB 2: SEARCH & RATE MOVIES
-# -------------------------------------------------------------
-elif nav_choice == "🔍 Search & Rate Movies":
-    st.markdown("## 🔍 Search & Discover Movies")
-    st.caption("Search across 9,700+ movies, filter by genre or rating, and rate titles to train your recommendation model.")
-
-    scol1, scol2, scol3 = st.columns([2, 1, 1])
-    with scol1:
-        search_query = st.text_input("Search movie title", placeholder="e.g. Matrix, Inception, Toy Story, Batman...", value="")
-    with scol2:
-        search_genre = st.selectbox("Genre Filter", ["All"] + engine.all_genres, index=0)
-    with scol3:
-        min_star = st.slider("Minimum Rating", 0.0, 5.0, 0.0, step=0.5)
-
-    search_results = engine.search_movies(query=search_query, genre=search_genre, min_rating=min_star, limit=16)
-
-    st.markdown(f"**Found {len(search_results)} movies matching criteria**")
-
-    if not search_results:
-        st.warning("No movies matched your search query. Try broadening your keywords or resetting filters.")
-    else:
-        cols = st.columns(4)
-        for idx, movie in enumerate(search_results):
-            render_movie_card(movie, cols[idx % 4], key_prefix=f"search_{idx}")
-
-    # Display Movie Details / Rating Modal
-    if "selected_movie_id" in st.session_state and st.session_state["selected_movie_id"]:
-        sel_mid = st.session_state["selected_movie_id"]
-        m_details = engine.get_movie_details(sel_mid)
-        if m_details:
-            st.markdown("---")
-            st.markdown("### 🎬 Movie Details & Interactive Rating")
-            dcol1, dcol2 = st.columns([1, 2])
-            with dcol1:
-                st.image(m_details['poster_url'], use_container_width=True)
-            with dcol2:
-                st.markdown(f"## {m_details['clean_title']} ({m_details['year']})")
-                st.markdown(f"**Genres:** {m_details['genres'].replace('|', ', ')}")
-                st.markdown(f"**Community Rating:** ★ **{m_details['avg_rating']:.2f}** / 5.0 ({m_details['rating_count']} ratings)")
-                if m_details['tags']:
-                    st.markdown(f"**Keywords / Tags:** `{m_details['tags']}`")
-
-                # User rating widget
-                curr_ratings = {r['movie_id']: r['rating'] for r in get_user_ratings(user_id)}
-                user_curr = curr_ratings.get(sel_mid, 3.5)
-
-                new_r = st.slider("Your Rating (1.0 to 5.0 stars)", 1.0, 5.0, float(user_curr), step=0.5, key=f"search_rate_sl_{sel_mid}")
-                rcol1, rcol2 = st.columns(2)
-                with rcol1:
-                    if st.button("💾 Save Rating", key=f"search_save_{sel_mid}", use_container_width=True):
-                        save_user_rating(user_id, sel_mid, new_r)
-                        st.success(f"Rated '{m_details['clean_title']}' with {new_r}★!")
-                        st.rerun()
-                with rcol2:
-                    if sel_mid in curr_ratings:
-                        if st.button("🗑️ Remove Rating", key=f"search_del_{sel_mid}", use_container_width=True):
-                            delete_user_rating(user_id, sel_mid)
-                            st.info("Rating cleared.")
-                            st.rerun()
-
-            st.markdown(f"#### 🎭 More Like *{m_details['clean_title']}*")
-            sim_movies = engine.get_similar_movies(sel_mid, top_n=4)
-            sim_cols = st.columns(4)
-            for sidx, sm in enumerate(sim_movies):
-                render_movie_card(sm, sim_cols[sidx % 4], key_prefix=f"sim_search_{sidx}")
-
-# -------------------------------------------------------------
-# TAB 3: AI RECOMMENDATIONS
-# -------------------------------------------------------------
-elif nav_choice == "🎯 AI Recommendations":
-    st.markdown("## 🎯 Personalized AI Recommendations")
-    st.caption("Explore recommendations tailored to your profile using state-of-the-art machine learning algorithms.")
-
-    # Algorithm selector
-    acol1, acol2, acol3 = st.columns([1.5, 1.5, 1])
-    with acol1:
-        selected_algo = st.selectbox(
-            "Recommendation Algorithm",
-            [
-                "Hybrid (Recommended - Content + Collaborative)",
-                "Content-Based (TF-IDF & Metadata Cosine Similarity)",
-                "Collaborative Filtering (Item-Item Cosine Similarity)"
-            ],
-            index=0
-        )
-    with acol2:
-        algo_code = "hybrid"
-        if "Content-Based" in selected_algo:
-            algo_code = "content"
-        elif "Collaborative" in selected_algo:
-            algo_code = "collaborative"
-
-        top_n = st.slider("Number of Recommendations", 8, 20, 12, step=2)
-
-    # Hybrid blending weight slider if Hybrid selected
-    cf_weight = None
-    if algo_code == "hybrid":
-        with acol3:
-            cf_weight = st.slider(
-                "Collaborative vs Content Weight (α)",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.60,
-                step=0.05,
-                help="0.0 = Pure Content-Based; 1.0 = Pure Collaborative Filtering"
-            )
-
-    # Status of user ratings
-    user_ratings = get_user_ratings(user_id)
-    user_prefs = get_user_preferences(user_id)
-    n_ratings = len(user_ratings)
-
-    if n_ratings == 0:
-        st.info("ℹ️ **Cold-Start Mode Active:** You haven't rated any movies yet. Showing intelligent recommendations based on your **Favorite Genres & Keywords** in User Preferences.")
-    else:
-        st.success(f"✨ Generating personalized recommendations using **{n_ratings} movies** you've rated! (Rated movies are strictly excluded from results).")
-
-    # Fetch recommendations
-    recommendations = engine.get_personalized_recommendations(
-        user_id=user_id,
-        algorithm=algo_code,
-        top_n=top_n,
-        cf_weight=cf_weight
+    res = engine.search_movies(query=q, genre=sg, min_rating=mr, limit=24)
+    st.markdown(
+        f'<div style="color:#666;font-size:0.85rem;margin:8px 0 16px;">Found <strong style="color:#E50914">{len(res)}</strong> movies</div>',
+        unsafe_allow_html=True
     )
-
-    if not recommendations:
-        st.warning("No recommendations could be generated. Please select some favorite genres in 'My Preferences' or rate a few movies.")
+    if not res:
+        st.info("No movies found. Try a broader search.")
     else:
-        cols = st.columns(4)
-        for idx, movie in enumerate(recommendations):
-            render_movie_card(movie, cols[idx % 4], key_prefix=f"rec_{idx}")
+        cols = st.columns(6)
+        for i, m in enumerate(res):
+            render_card(m, cols[i % 6], f"sr_{i}")
 
-    # Inspecting Similar Movie Triggered from Button
-    if "similar_to_movie_id" in st.session_state and st.session_state.get("nav_to_similar"):
-        target_mid = st.session_state["similar_to_movie_id"]
-        target_info = engine.get_movie_details(target_mid)
-        if target_info:
-            st.markdown("---")
-            st.markdown(f"### 🔗 Deep Dive: Similar to *{target_info['clean_title']}*")
-            method = st.radio("Similarity Algorithm", ["Content-Based (TF-IDF Genres & Tags)", "Collaborative (User Co-ratings)"], horizontal=True)
-            m_code = "collaborative" if "Collaborative" in method else "content"
-            sim_list = engine.get_similar_movies(target_mid, top_n=4, method=m_code)
-            sim_cols = st.columns(4)
-            for sidx, sm in enumerate(sim_list):
-                render_movie_card(sm, sim_cols[sidx % 4], key_prefix=f"sim_deep_{sidx}")
+    if st.session_state.get("detail_movie"):
+        render_detail(st.session_state["detail_movie"], user_id, "srch")
 
-# -------------------------------------------------------------
-# TAB 4: USER PREFERENCES
-# -------------------------------------------------------------
-elif nav_choice == "⚙️ My Preferences":
-    st.markdown("## ⚙️ Customize Your Movie Preferences")
-    st.caption("Tell CineAI what you love so cold-start and hybrid recommenders can personalize your suggestions.")
+# ══════════════════════════════════════════════════════════
+# PAGE: AI RECOMMENDATIONS
+# ══════════════════════════════════════════════════════════
+elif active_page == "AI RECS":
+    section_title("🎯 AI Recommendations")
+    st.caption("Personalized movie picks powered by machine learning.")
+    a1, a2, a3 = st.columns([2, 1, 1])
+    with a1:
+        asel = st.selectbox("Algorithm", [
+            "Hybrid (Content + Collaborative)",
+            "Content-Based (TF-IDF)",
+            "Collaborative (Item-Item CF)"
+        ], index=0)
+    with a2:
+        algo = "hybrid"
+        if "Content-Based" in asel:
+            algo = "content"
+        elif "Collaborative" in asel:
+            algo = "collaborative"
+        top_n = st.slider("Results", 6, 24, 12, 2)
+    cfw = None
+    if algo == "hybrid":
+        with a3:
+            cfw = st.slider("α Weight", 0.0, 1.0, 0.60, 0.05, help="0=Content | 1=Collaborative")
 
-    current_prefs = get_user_preferences(user_id)
-    curr_genres = current_prefs.get('favorite_genres', [])
-    curr_actors = current_prefs.get('favorite_actors', [])
-    curr_langs = current_prefs.get('favorite_languages', [])
-    curr_cats = current_prefs.get('preferred_categories', [])
-
-    with st.form("preferences_form"):
-        st.subheader("1. Favorite Movie Genres")
-        selected_genres = st.multiselect(
-            "Select your favorite genres (multiple choices allowed)",
-            options=engine.all_genres,
-            default=[g for g in curr_genres if g in engine.all_genres]
+    ur = get_user_ratings(user_id)
+    if len(ur) == 0:
+        st.markdown(
+            '<div class="cai-banner-cold"><strong style="color:#E50914;">COLD-START MODE</strong>'
+            ' <span style="color:#999;">— No ratings yet. Showing genre-based picks.</span></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f'<div class="cai-banner-warm"><strong style="color:#46d369;">PERSONALIZED</strong>'
+            f' <span style="color:#999;">— Using <strong style="color:#fff;">{len(ur)}</strong> ratings.</span></div>',
+            unsafe_allow_html=True
         )
 
-        st.subheader("2. Favorite Actors & Directors")
-        popular_actors = [
+    recs = engine.get_personalized_recommendations(user_id=user_id, algorithm=algo, top_n=top_n, cf_weight=cfw)
+    if not recs:
+        st.warning("No recommendations available. Set genres in Preferences or rate some movies first.")
+    else:
+        cols = st.columns(6)
+        for i, m in enumerate(recs):
+            render_card(m, cols[i % 6], f"rc_{i}")
+
+    if st.session_state.get("detail_movie"):
+        render_detail(st.session_state["detail_movie"], user_id, "rec")
+
+# ══════════════════════════════════════════════════════════
+# PAGE: PREFERENCES
+# ══════════════════════════════════════════════════════════
+elif active_page == "PREFERENCES":
+    section_title("⚙️ Your Preferences")
+    st.caption("Configure your taste profile for better AI recommendations.")
+    cp = get_user_preferences(user_id)
+
+    with st.form("pref_form"):
+        section_title("🎬 Favorite Genres")
+        sg = st.multiselect(
+            "Genres", engine.all_genres,
+            default=[g for g in cp.get('favorite_genres', []) if g in engine.all_genres],
+            label_visibility="collapsed"
+        )
+        section_title("🌟 Favorite Actors & Directors")
+        actors = [
             "Tom Hanks", "Leonardo DiCaprio", "Keanu Reeves", "Morgan Freeman",
             "Robert De Niro", "Al Pacino", "Christian Bale", "Brad Pitt",
             "Scarlett Johansson", "Christopher Nolan", "Quentin Tarantino", "Steven Spielberg"
         ]
-        selected_actors = st.multiselect(
-            "Select or type favorite actors / directors",
-            options=popular_actors,
-            default=[a for a in curr_actors if a in popular_actors]
+        sa = st.multiselect(
+            "Actors", actors,
+            default=[a for a in cp.get('favorite_actors', []) if a in actors],
+            label_visibility="collapsed"
         )
-
-        st.subheader("3. Preferred Languages")
-        language_options = ["English", "French", "Japanese", "Spanish", "German", "Hindi", "Korean", "Italian"]
-        selected_langs = st.multiselect(
-            "Select preferred movie languages",
-            options=language_options,
-            default=[l for l in curr_langs if l in language_options]
+        section_title("🌍 Languages")
+        langs = ["English", "French", "Japanese", "Spanish", "German", "Hindi", "Korean", "Italian"]
+        sl = st.multiselect(
+            "Languages", langs,
+            default=[l for l in cp.get('favorite_languages', []) if l in langs],
+            label_visibility="collapsed"
         )
-
-        st.subheader("4. Preferred Movie Categories")
-        category_options = ["Blockbuster", "Critically Acclaimed", "Indie Cult", "Classic Cinema", "Award Winners", "Hidden Gems"]
-        selected_cats = st.multiselect(
-            "Select categories",
-            options=category_options,
-            default=[c for c in curr_cats if c in category_options]
+        section_title("📂 Categories")
+        cats = ["Blockbuster", "Critically Acclaimed", "Indie Cult", "Classic Cinema", "Award Winners", "Hidden Gems"]
+        sc = st.multiselect(
+            "Categories", cats,
+            default=[c for c in cp.get('preferred_categories', []) if c in cats],
+            label_visibility="collapsed"
         )
-
-        submitted = st.form_submit_button("💾 Save Preferences")
-        if submitted:
-            save_user_preferences(
-                user_id=user_id,
-                favorite_genres=selected_genres,
-                favorite_actors=selected_actors,
-                favorite_languages=selected_langs,
-                preferred_categories=selected_cats
-            )
-            st.success("Preferences saved successfully to SQLite database!")
+        if st.form_submit_button("💾 Save Preferences"):
+            save_user_preferences(user_id, sg, sa, sl, sc)
+            st.success("Preferences saved!")
             st.rerun()
 
-    st.markdown("### 📋 Active Preference Summary")
+    section_title("📋 Your Active Profile")
     p1, p2 = st.columns(2)
     with p1:
-        st.markdown("**Genres:** " + (" ".join([f"<span class='genre-pill'>{g}</span>" for g in selected_genres]) if selected_genres else "*None selected*"), unsafe_allow_html=True)
-        st.markdown("**Actors/Directors:** " + (", ".join(selected_actors) if selected_actors else "*None selected*"))
+        ghtml = " ".join([f'<span class="genre-pill">{g}</span>' for g in sg]) if sg else '<em style="color:#555">None selected</em>'
+        st.markdown(f"**Genres:** {ghtml}", unsafe_allow_html=True)
+        st.markdown("**Actors:** " + (", ".join(sa) if sa else "*None*"))
     with p2:
-        st.markdown("**Languages:** " + (", ".join(selected_langs) if selected_langs else "*None selected*"))
-        st.markdown("**Categories:** " + (", ".join(selected_cats) if selected_cats else "*None selected*"))
+        st.markdown("**Languages:** " + (", ".join(sl) if sl else "*None*"))
+        st.markdown("**Categories:** " + (", ".join(sc) if sc else "*None*"))
 
-# -------------------------------------------------------------
-# TAB 5: USER DASHBOARD
-# -------------------------------------------------------------
-elif nav_choice == "📊 User Dashboard":
-    st.markdown(f"## 📊 Cinephile Dashboard: {selected_username}")
-    st.caption("Overview of your viewing history, rating metrics, genre distribution, and algorithm activity.")
-
+# ══════════════════════════════════════════════════════════
+# PAGE: DASHBOARD
+# ══════════════════════════════════════════════════════════
+elif active_page == "DASHBOARD":
+    section_title(f"📊 Dashboard — {st.session_state['username']}")
     summary = engine.get_user_summary(user_id)
 
-    # Top KPI metrics
-    kcol1, kcol2, kcol3, kcol4 = st.columns(4)
-    with kcol1:
-        st.markdown(f"""
-        <div class="stat-card">
-            <div class="stat-value">{summary['total_ratings']}</div>
-            <div class="stat-label">Movies Rated</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with kcol2:
-        st.markdown(f"""
-        <div class="stat-card">
-            <div class="stat-value">★ {summary['avg_user_rating']}</div>
-            <div class="stat-label">Average Rating Given</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with kcol3:
-        st.markdown(f"""
-        <div class="stat-card">
-            <div class="stat-value">{len(summary['preferences'].get('favorite_genres', []))}</div>
-            <div class="stat-label">Favorite Genres</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with kcol4:
-        st.markdown(f"""
-        <div class="stat-card">
-            <div class="stat-value">{len(summary['history'])}</div>
-            <div class="stat-label">Recommendation Sessions</div>
-        </div>
-        """, unsafe_allow_html=True)
+    # KPI cards
+    k1, k2, k3, k4 = st.columns(4)
+    kpis = [
+        (k1, str(summary['total_ratings']), "MOVIES RATED"),
+        (k2, f"★ {summary['avg_user_rating']}", "AVG RATING"),
+        (k3, str(len(summary['preferences'].get('favorite_genres', []))), "GENRES"),
+        (k4, str(len(summary['history'])), "SESSIONS"),
+    ]
+    for col, val, lbl in kpis:
+        with col:
+            st.markdown(
+                f'<div class="cai-stat"><div class="cai-stat-val">{val}</div>'
+                f'<div class="cai-stat-label">{lbl}</div></div>',
+                unsafe_allow_html=True
+            )
 
     st.markdown("---")
-
-    # Genre Distribution Chart
-    g_dist = summary['genre_distribution']
-    chart_col1, chart_col2 = st.columns([1.2, 1])
-
-    with chart_col1:
-        st.subheader("📈 Your Genre Preferences (From Ratings)")
-        if g_dist:
-            chart_df = pd.DataFrame(list(g_dist.items()), columns=['Genre', 'Count']).sort_values(by='Count', ascending=True)
-            fig = px.bar(
-                chart_df, 
-                x='Count', 
-                y='Genre', 
-                orientation='h', 
-                color='Count',
-                color_continuous_scale=['#4a5568', '#e50914'],
-                labels={'Count': 'Rated Movies'}
-            )
+    c1, c2 = st.columns([1.2, 1])
+    with c1:
+        section_title("Genre Distribution")
+        gd = summary['genre_distribution']
+        if gd:
+            df = pd.DataFrame(list(gd.items()), columns=['Genre', 'Count']).sort_values('Count', ascending=True)
+            fig = px.bar(df, x='Count', y='Genre', orientation='h', color='Count',
+                         color_continuous_scale=['#1a1a1a', '#E50914'])
             fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#f7fafc'),
-                margin=dict(l=20, r=20, t=20, b=20),
-                coloraxis_showscale=False
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#e5e5e5'), margin=dict(l=10, r=10, t=10, b=10),
+                coloraxis_showscale=False,
+                yaxis=dict(gridcolor='#222'), xaxis=dict(gridcolor='#222')
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("No genre chart available yet. Rate a few movies to see your personalized taste graph!")
+            st.info("Rate movies to see genre insights.")
 
-    with chart_col2:
-        st.subheader("⭐ Rating Distribution")
-        rated_list = summary['rated_movies']
-        if rated_list:
-            r_vals = [r['user_rating'] for r in rated_list]
-            r_df = pd.DataFrame(r_vals, columns=['Rating']).value_counts().reset_index()
-            r_df.columns = ['Rating', 'Count']
-            r_df = r_df.sort_values(by='Rating')
-            fig_pie = px.pie(
-                r_df, 
-                values='Count', 
-                names='Rating', 
-                color_discrete_sequence=['#ffb800', '#f6ad55', '#e50914', '#ed8936', '#cbd5e0']
+    with c2:
+        section_title("Rating Breakdown")
+        rl = summary['rated_movies']
+        if rl:
+            rv = [r['user_rating'] for r in rl]
+            rdf = pd.DataFrame(rv, columns=['Rating']).value_counts().reset_index()
+            rdf.columns = ['Rating', 'Count']
+            fig2 = px.pie(rdf, values='Count', names='Rating',
+                          color_discrete_sequence=['#E50914', '#f5c518', '#46d369', '#2196f3', '#666'])
+            fig2.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#e5e5e5'),
+                margin=dict(l=10, r=10, t=10, b=10)
             )
-            fig_pie.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#f7fafc'),
-                margin=dict(l=20, r=20, t=20, b=20)
-            )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig2, use_container_width=True)
         else:
-            st.info("Rate movies to view your score breakdown.")
+            st.info("Rate movies to see rating breakdown.")
 
-    # Rated Movies Table with Delete / Edit Option
-    st.markdown("### 📝 Movies You Have Rated")
-    if rated_list:
-        rated_table_data = []
-        for r in rated_list:
-            rated_table_data.append({
-                "Movie ID": r['movie_id'],
-                "Title": r['title'],
-                "Genres": r['genres'],
-                "Your Rating": f"★ {r['user_rating']}",
-                "Rated On": r['rated_at']
-            })
-        st.dataframe(pd.DataFrame(rated_table_data), use_container_width=True)
-
-        del_mid = st.selectbox("Select movie to remove from ratings:", [r['movie_id'] for r in rated_list], format_func=lambda mid: next((r['title'] for r in rated_list if r['movie_id'] == mid), mid))
-        if st.button("🗑️ Delete Selected Rating", key="dash_del_btn"):
-            delete_user_rating(user_id, del_mid)
-            st.success("Rating removed.")
+    section_title("Your Rated Movies")
+    if rl:
+        tbl = [{"Title": r['title'], "Genres": r['genres'], "Rating": f"★ {r['user_rating']}", "Date": r['rated_at']} for r in rl]
+        st.dataframe(pd.DataFrame(tbl), use_container_width=True)
+        dm = st.selectbox(
+            "Remove rating:", [r['movie_id'] for r in rl],
+            format_func=lambda x: next((r['title'] for r in rl if r['movie_id'] == x), str(x))
+        )
+        if st.button("Delete Rating", key="dd"):
+            delete_user_rating(user_id, dm)
             st.rerun()
     else:
-        st.write("You haven't rated any movies yet. Explore the **Search & Rate** tab to begin building your profile!")
+        st.markdown(
+            '<div style="text-align:center;padding:50px;color:#555;">'
+            '<div style="font-size:3rem;margin-bottom:12px;">🎬</div>'
+            '<div style="font-weight:700;font-size:1.1rem;color:#999;">No ratings yet</div>'
+            '<div style="font-size:0.85rem;margin-top:8px;color:#666;">Search & rate movies to build your profile.</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
 
-# -------------------------------------------------------------
-# TAB 6: AI MODEL EXPLANATION & ARCHITECTURE (DEMO SHOWCASE)
-# -------------------------------------------------------------
-elif nav_choice == "🧪 AI Model Explanation & Architecture":
-    st.markdown("## 🧪 AI Model Explanation & System Architecture")
-    st.caption("A comprehensive technical guide prepared for college evaluations, Viva examinations, and project reviews.")
+# ══════════════════════════════════════════════════════════
+# PAGE: AI ARCHITECTURE
+# ══════════════════════════════════════════════════════════
+elif active_page == "AI ARCH":
+    section_title("🧪 AI Model Architecture")
+    st.caption("Technical deep-dive into the recommendation algorithms — for project evaluation.")
 
-    # Top KPI Metrics from real MovieLens evaluation
-    mcol1, mcol2, mcol3, mcol4, mcol5 = st.columns(5)
-    with mcol1:
-        st.metric("RMSE (Test Error)", f"{eval_metrics.get('RMSE', 0.9094):.4f}", help="Root Mean Squared Error on 20% test ratings split")
-    with mcol2:
-        st.metric("MAE (Mean Error)", f"{eval_metrics.get('MAE', 0.7015):.4f}", help="Mean Absolute Error on test split")
-    with mcol3:
-        st.metric("Precision@10", f"{eval_metrics.get('Precision@10', 0.0072):.4f}", help="Fraction of top-10 recommendations rated >= 4.0")
-    with mcol4:
-        st.metric("Recall@10", f"{eval_metrics.get('Recall@10', 0.0056):.4f}", help="Fraction of user relevant movies retrieved in top-10")
-    with mcol5:
-        st.metric("Catalog Coverage", f"{eval_metrics.get('Catalog_Coverage', 0.0157):.4f}", help="Proportion of total catalog recommended")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    with m1: st.metric("RMSE", f"{eval_metrics.get('RMSE', 0.9094):.4f}")
+    with m2: st.metric("MAE", f"{eval_metrics.get('MAE', 0.7015):.4f}")
+    with m3: st.metric("P@10", f"{eval_metrics.get('Precision@10', 0.0072):.4f}")
+    with m4: st.metric("R@10", f"{eval_metrics.get('Recall@10', 0.0056):.4f}")
+    with m5: st.metric("Coverage", f"{eval_metrics.get('Catalog_Coverage', 0.0157):.4f}")
 
     st.markdown("---")
-
-    # Explanation Sections
-    t1, t2, t3, t4, t5 = st.tabs([
-        "1. Core Concepts", 
-        "2. Content-Based & TF-IDF", 
-        "3. Collaborative Filtering & SVD", 
-        "4. Hybrid Recommender",
-        "5. System Architecture"
-    ])
+    t1, t2, t3, t4, t5 = st.tabs(["Concepts", "TF-IDF", "SVD & CF", "Hybrid", "Architecture"])
 
     with t1:
-        st.markdown("""
-        ### 📖 What is a Recommendation System?
-        A **Recommendation System** is an artificial intelligence algorithm that predicts the preference, rating, or affinity a user would assign to an item (e.g., movies, songs, products).
-        
-        #### Why do modern platforms need them?
-        1. **Choice Overload**: Modern streaming platforms catalog tens of thousands of media assets.
-        2. **Serendipity & Discovery**: Surfaces niche films ("hidden gems") users would not have searched for manually.
-        3. **Engagement & Retention**: Higher recommendation relevance directly correlates with user session time.
-        
-        #### The Three Fundamental Paradigms:
-        - **Content-Based Filtering**: Suggests items similar to what the user liked in the past based on descriptive metadata (genres, actors, plots).
-        - **Collaborative Filtering**: Suggests items by identifying patterns among groups of users who share similar rating histories ("wisdom of the crowd").
-        - **Hybrid Systems**: Strategically blends both techniques to combine their strengths and compensate for their weaknesses.
-        """)
+        st.markdown("""### What is a Recommendation System?
+An AI algorithm predicting user preferences for items based on behavior and characteristics.
+
+| Paradigm | Mechanism | Strength |
+| :--- | :--- | :--- |
+| **Content-Based** | Item metadata similarity | Works for new items |
+| **Collaborative** | User behavior patterns | Discovers unexpected hits |
+| **Hybrid** | Weighted blend | Best of both worlds |
+
+Netflix, Spotify, Amazon all rely on recommendation AI to drive 80%+ of content consumption.""")
 
     with t2:
-        st.markdown("""
-        ### 🎯 Content-Based Filtering & TF-IDF
-        
-        #### What is Content-Based Filtering?
-        Content-Based Filtering models recommend items based on the **intrinsic features** of the items themselves. In CineAI, each movie is represented by its **Metadata Soup**:
-        $$\\text{Soup}_i = \\text{CleanTitle}_i \\parallel \\text{Genres}_i \\parallel \\text{Tags}_i$$
+        st.markdown(r"""### Content-Based Filtering & TF-IDF
+Each movie → metadata soup (title + genres + tags) → TF-IDF vector → cosine similarity.
 
-        #### What is TF-IDF (Term Frequency - Inverse Document Frequency)?
-        TF-IDF transforms variable-length text into fixed-length numerical feature vectors, discounting commonly repeated stop words while highlighting descriptive keywords:
-        $$\\text{TF}(t, d) = \\frac{\\text{Frequency of term } t \\text{ in document } d}{\\text{Total words in document } d}$$
-        $$\\text{IDF}(t, D) = \\log \\left( \\frac{1 + |D|}{1 + |\\{d \\in D : t \\in d\\}|} \\right) + 1$$
-        $$\\text{TF-IDF}(t, d, D) = \\text{TF}(t, d) \\times \\text{IDF}(t, D)$$
+$$\text{TF-IDF}(t,d,D) = \frac{f_{t,d}}{\sum f} \cdot \left(\log\frac{1+|D|}{1+|\{d:t\in d\}|}+1\right)$$
 
-        #### What is Cosine Similarity?
-        Cosine Similarity calculates the cosine of the angle between two high-dimensional vectors in $n$-dimensional space, measuring orientation rather than magnitude:
-        $$\\text{Sim}_{\\text{cosine}}(\\mathbf{u}, \\mathbf{v}) = \\frac{\\mathbf{u} \\cdot \\mathbf{v}}{\\|\\mathbf{u}\\| \\|\\mathbf{v}\\|} = \\frac{\\sum_{i=1}^n u_i v_i}{\\sqrt{\\sum_{i=1}^n u_i^2} \\sqrt{\\sum_{i=1}^n v_i^2}}$$
-        A score of $1.0$ indicates identical thematic alignment, while $0.0$ indicates orthogonality (no common terms).
+$$\text{Sim}(\mathbf{u},\mathbf{v}) = \frac{\mathbf{u}\cdot\mathbf{v}}{||\mathbf{u}||\cdot||\mathbf{v}||}$$
 
-        #### Strengths & Limitations:
-        - ✅ **Cold-Start for New Movies**: Can recommend brand-new movies immediately upon release without waiting for user reviews.
-        - ✅ **Transparent & Explainable**: High visibility into why a recommendation was made (matching genres/keywords).
-        - ⚠️ **Overspecialization**: Struggles to recommend outside the user's established genre comfort zone.
-        """)
+| ✅ Strength | ⚠️ Limitation |
+| :--- | :--- |
+| Cold-start for new movies | Overspecialization risk |
+| Transparent & explainable | Limited serendipity |""")
 
     with t3:
-        st.markdown("""
-        ### 👥 Collaborative Filtering & Latent Matrix Factorization
-        
-        #### What is Collaborative Filtering?
-        Collaborative Filtering assumes that if User $A$ and User $B$ have agreed on movie ratings in the past, they will likely agree in the future.
-        
-        #### Item-Item Collaborative Filtering
-        In CineAI, we adopt an **Item-Based approach** because items (movies) are more static and stable than dynamic users:
-        1. Form the interaction matrix $\\mathbf{R} \\in \\mathbb{R}^{610 \\times 3650}$ (610 MovieLens users by 3,650 popular movies).
-        2. Compute cosine similarity between movie rating column vectors $\\mathbf{r}_{*i}$ and $\\mathbf{r}_{*j}$.
-        3. Predict rating $\\hat{r}_{u, i}$ for unrated movie $i$ using neighbor similarities:
-        $$\\hat{r}_{u, i} = \\frac{\\sum_{j \\in \\text{Rated}_u, s_{i, j} > 0.05} s_{i, j} \\cdot r_{u, j}}{\\sum_{j \\in \\text{Rated}_u, s_{i, j} > 0.05} |s_{i, j}|}$$
+        st.markdown(r"""### Collaborative Filtering & Matrix Factorization
+Item-Item CF + TruncatedSVD decomposition of the rating matrix.
 
-        #### Matrix Factorization via TruncatedSVD
-        Decomposes the sparse interaction matrix into rank-$k$ low-dimensional latent spaces:
-        $$\\mathbf{R} \\approx \\mathbf{U}_k \\mathbf{\\Sigma}_k \\mathbf{V}_k^T$$
-        Where $k=20$ represents latent thematic factors (e.g. moody noir tones, fast pacing, comedic timing) automatically learned from rating correlations.
+$$\mathbf{R} \approx \mathbf{U}_k \mathbf{\Sigma}_k \mathbf{V}_k^T \quad (k=20)$$
 
-        #### Strengths & Limitations:
-        - ✅ **Domain Independent**: No metadata or manual tagging required.
-        - ✅ **Serendipitous**: Recommends unexpected titles that share subtle user interest clusters.
-        - ⚠️ **The Cold-Start Dilemma**: Cannot provide recommendations for brand-new users with zero ratings.
-        """)
+$$\hat{r}_{a,i} = \frac{\sum_{j} s_{ij} \cdot r_{a,j}}{\sum_j |s_{ij}|}$$
+
+| ✅ Strength | ⚠️ Limitation |
+| :--- | :--- |
+| Domain independent | Cold-start for new users |
+| Serendipitous discoveries | Sparse matrix issues |""")
 
     with t4:
-        st.markdown("""
-        ### ⚡ The CineAI Hybrid Engine & Cold-Start Strategy
-        
-        #### Why a Hybrid Engine?
-        Content-Based and Collaborative Filtering have complementary strengths. CineAI strategically combines them through dynamic linear score blending:
-        $$\\text{Score}_{\\text{hybrid}} = \\alpha \\cdot \\text{Norm}(\\text{Score}_{\\text{CF}}) + (1 - \\alpha) \\cdot \\text{Norm}(\\text{Score}_{\\text{Content}}) + \\text{Boost}_{\\text{genre}}$$
+        st.markdown(r"""### Hybrid Engine & Cold-Start Strategy
 
-        #### Dynamic Cold-Start Mitigation Table:
-        | User Rating Count | Recommender Mode | Weight $\\alpha$ | Recommendation Rationale |
-        | :--- | :--- | :--- | :--- |
-        | **0 Ratings (Cold)** | Pure Content + Preferences | $\\alpha = 0.00$ | Matches explicit genres & actors selected in user preferences. |
-        | **1 - 3 Ratings (Warm)** | Content-Leaning Hybrid | $\\alpha = 0.35$ | Explores similar content while gingerly introducing collaborative co-ratings. |
-        | **> 3 Ratings (Established)** | Collaborative-Leaning Hybrid | $\\alpha = 0.60$ | Strong collaborative crowd-signals with content thematic grounding. |
-        """)
+$$\text{Score} = \alpha \cdot \text{CF}_{\text{norm}} + (1-\alpha) \cdot \text{CB}_{\text{norm}} + \text{GenreBoost}$$
+
+| Ratings | Mode | α | Strategy |
+| :--- | :--- | :--- | :--- |
+| **0** | Content Only | 0.00 | Genre preferences |
+| **1–3** | Content-Heavy | 0.35 | Light collaborative |
+| **>3** | CF-Heavy | 0.60 | Strong crowd signals |""")
 
     with t5:
-        st.markdown("""
-        ### 🏗️ CineAI End-to-End System Architecture
-        """)
-        st.markdown("""
-```
- +------------------------------------------------------------------------+
- |                      Streamlit Presentation Layer                     |
- |  - Hero Banner        - Search & Filters      - Star Rating Widget    |
- |  - Preference Form    - Analytics Dashboard   - Educational Sandbox   |
- +-----------------------------------+------------------------------------+
-                                     |
-                                     v
- +------------------------------------------------------------------------+
- |                  Recommendation Engine Facade Layer                    |
- |                       (src/recommendation.py)                          |
- +---------+-------------------------+--------------------------+---------+
-           |                         |                          |
-           v                         v                          v
- +-------------------+     +--------------------+     +-------------------+
- |   Content-Based   |     |   Collaborative    |     |      Hybrid       |
- |    Recommender    |     |     Filtering      |     |    Recommender    |
- | - TF-IDF Vectors  |     | - Item-Item Cosine |     | - Linear Blending |
- | - Cosine Sim      |     | - TruncatedSVD     |     | - Cold-Start Mode |
- | - User Profiling  |     | - Rating Prediction|     | - Genre Boosting  |
- +---------+---------+     +---------+----------+     +---------+---------+
-           |                         |                          |
-           +-------------------------+--------------------------+
-                                     |
-                                     v
- +------------------------------------------------------------------------+
- |                        Data & Persistence Layer                        |
- |  - GroupLens MovieLens Dataset (movies.csv, ratings.csv, tags.csv)     |
- |  - Serialized Artifacts (models/tfidf_model.pkl, models/cf_model.pkl) |
- |  - Transactional SQLite Store (database/users.db: profiles, ratings)   |
- +------------------------------------------------------------------------+
-```
-        """)
+        st.code("""
+┌──────────────────────────────────────────────────┐
+│          STREAMLIT PRESENTATION LAYER             │
+│  Hero · Search · Ratings · Analytics · Sandbox   │
+├────────────────────┬─────────────────────────────┤
+│ RECOMMENDATION ENGINE (src/recommendation.py)     │
+├─────────┬──────────┼──────────┬──────────────────┤
+│ Content │ Collab   │ Hybrid   │ Poster Service   │
+│ TF-IDF  │ Item CF  │ Dynamic α│ SVG Generator    │
+│ Cosine  │ SVD k=20 │ ColdStart│ CDN Cache        │
+├─────────┴──────────┴──────────┴──────────────────┤
+│           DATA & PERSISTENCE LAYER                │
+│  MovieLens CSVs · SQLite3 · Model PKLs           │
+└──────────────────────────────────────────────────┘""", language="text")
 
-# -------------------------------------------------------------
-# TAB 7: INTERACTIVE MODEL PLAYGROUND (VIVA DEMO FEATURE)
-# -------------------------------------------------------------
-elif nav_choice == "🔬 Interactive Model Playground":
-    st.markdown("## 🔬 Interactive Machine Learning Playground")
-    st.caption("Live mathematical demonstration environment designed for college project presentations and examiners.")
+# ══════════════════════════════════════════════════════════
+# PAGE: ML PLAYGROUND
+# ══════════════════════════════════════════════════════════
+elif active_page == "PLAYGROUND":
+    section_title("🔬 ML Playground")
+    st.caption("Live experiments and interactive demos for project evaluation.")
 
-    p_mode = st.radio(
-        "Select Experiment Mode",
-        [
-            "1. Movie-to-Movie Cosine Similarity Comparison (Content vs. Collaborative)",
-            "2. Live TF-IDF Metadata Vector Inspection",
-            "3. Cold-Start Preference Simulation"
-        ],
-        horizontal=True
-    )
+    mode = st.radio("Experiment", ["Similarity Face-Off", "TF-IDF Inspector", "Cold-Start Sim"], horizontal=True)
 
-    if "1. Movie-to-Movie" in p_mode:
-        st.subheader("1. Item-to-Item Similarity Face-Off")
-        st.caption("Compare how Content-Based Filtering (text metadata) vs Collaborative Filtering (rating patterns) view similarity for any movie.")
-
-        # Movie selector
-        demo_mid = st.selectbox(
-            "Select Seed Movie to Analyze",
-            list(engine.movie_map.keys()),
+    if mode == "Similarity Face-Off":
+        section_title("Content vs Collaborative")
+        dmid = st.selectbox(
+            "Seed Movie", list(engine.movie_map.keys()),
             format_func=lambda m: f"{engine.movie_map[m]['clean_title']} ({engine.movie_map[m].get('year', '')}) — {engine.movie_map[m]['genres']}",
             index=0
         )
-        seed_movie = engine.get_movie_details(demo_mid)
+        seed = engine.get_movie_details(dmid)
+        st.markdown(f"**Target:** *{seed['clean_title']}* — `{seed['genres']}`")
 
-        st.markdown(f"**Target Movie:** *{seed_movie['clean_title']}* ({seed_movie['genres']})")
+        p1, p2 = st.columns(2)
+        with p1:
+            st.markdown("#### 📄 Content-Based (TF-IDF)")
+            for item in engine.get_similar_movies(dmid, top_n=5, method="content"):
+                st.markdown(
+                    f'<div class="sim-card"><strong>{item["clean_title"]}</strong> ({item.get("year", "")})<br/>'
+                    f'<span style="color:#46d369;font-size:0.78rem;">{item["genres"].replace("|", " · ")}</span><br/>'
+                    f'<span style="color:#f5c518;">★ {item.get("avg_rating", 0.0)}</span> · '
+                    f'<span style="color:#2196f3;font-weight:800;">Sim: {item.get("similarity_score", 0.0):.4f}</span></div>',
+                    unsafe_allow_html=True
+                )
+        with p2:
+            st.markdown("#### 👥 Collaborative (Co-Ratings)")
+            for item in engine.get_similar_movies(dmid, top_n=5, method="collaborative"):
+                st.markdown(
+                    f'<div class="sim-card"><strong>{item["clean_title"]}</strong> ({item.get("year", "")})<br/>'
+                    f'<span style="color:#46d369;font-size:0.78rem;">{item["genres"].replace("|", " · ")}</span><br/>'
+                    f'<span style="color:#f5c518;">★ {item.get("avg_rating", 0.0)}</span> · '
+                    f'<span style="color:#E50914;font-weight:800;">Sim: {item.get("similarity_score", 0.0):.4f}</span></div>',
+                    unsafe_allow_html=True
+                )
 
-        pcol1, pcol2 = st.columns(2)
-        with pcol1:
-            st.markdown("#### 📄 Content-Based Similarity (TF-IDF)")
-            cb_sims = engine.get_similar_movies(demo_mid, top_n=5, method="content")
-            for item in cb_sims:
-                st.markdown(f"""
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid #2d3748; border-radius: 8px; padding: 10px; margin-bottom: 8px;">
-                    <strong>{item['clean_title']}</strong> ({item.get('year','')})<br/>
-                    <small style="color: #90cdf4;">{item['genres'].replace('|', ' • ')}</small><br/>
-                    <span style="color: #ffb800; font-size: 0.8rem;">★ {item.get('avg_rating', 0.0)}</span> | 
-                    <span style="color: #48bb78; font-size: 0.8rem;">Cosine Sim: <strong>{item.get('similarity_score', 0.0):.4f}</strong></span>
-                </div>
-                """, unsafe_allow_html=True)
-
-        with pcol2:
-            st.markdown("#### 👥 Collaborative Filtering Similarity (Co-Ratings)")
-            cf_sims = engine.get_similar_movies(demo_mid, top_n=5, method="collaborative")
-            for item in cf_sims:
-                st.markdown(f"""
-                <div style="background: rgba(255,255,255,0.03); border: 1px solid #2d3748; border-radius: 8px; padding: 10px; margin-bottom: 8px;">
-                    <strong>{item['clean_title']}</strong> ({item.get('year','')})<br/>
-                    <small style="color: #90cdf4;">{item['genres'].replace('|', ' • ')}</small><br/>
-                    <span style="color: #ffb800; font-size: 0.8rem;">★ {item.get('avg_rating', 0.0)}</span> | 
-                    <span style="color: #e50914; font-size: 0.8rem;">Co-Rating Sim: <strong>{item.get('similarity_score', 0.0):.4f}</strong></span>
-                </div>
-                """, unsafe_allow_html=True)
-
-    elif "2. Live TF-IDF" in p_mode:
-        st.subheader("2. TF-IDF Metadata Vector Inspection")
-        st.caption("Inspect the processed metadata soup and highest weighted tokens extracted for any film.")
-
-        inspect_mid = st.selectbox(
-            "Choose a movie to inspect:",
-            list(engine.movie_map.keys()),
+    elif mode == "TF-IDF Inspector":
+        section_title("TF-IDF Vector Inspector")
+        imid = st.selectbox(
+            "Movie", list(engine.movie_map.keys()),
             format_func=lambda m: f"{engine.movie_map[m]['clean_title']} ({engine.movie_map[m].get('year', '')})",
             index=10
         )
-        selected_info = engine.movie_map[inspect_mid]
+        info = engine.movie_map[imid]
+        st.markdown(f"**Title:** `{info['clean_title']}`")
+        st.markdown(f"**Genres:** `{info['genres']}`")
+        st.markdown(f"**Tags:** `{info.get('tag', '(none)')}`")
+        st.markdown("**Metadata Soup:**")
+        st.code(info.get('soup', ''), language="text")
 
-        st.markdown(f"**Clean Title:** `{selected_info['clean_title']}`")
-        st.markdown(f"**Genres:** `{selected_info['genres']}`")
-        st.markdown(f"**Aggregated Tags:** `{selected_info.get('tag', '(none)')}`")
-        st.markdown(f"**Raw Metadata Soup for TF-IDF:**")
-        st.code(selected_info.get('soup', ''), language="text")
-
-    elif "3. Cold-Start" in p_mode:
-        st.subheader("3. Cold-Start Preference Simulation")
-        st.caption("Test how the AI recommender behaves for a hypothetical brand new user with 0 ratings.")
-
-        sim_genres = st.multiselect("Select Hypothetical Favorite Genres:", engine.all_genres, default=["Action", "Sci-Fi"])
-        sim_keywords = st.text_input("Simulated Favorite Actors/Keywords:", "matrix space future hero")
-
-        if st.button("Generate Cold-Start Simulation"):
-            kw_list = [w.strip() for w in sim_keywords.split() if w.strip()]
-            sim_recs = engine.content_recommender.recommend_by_preferences(
-                favorite_genres=sim_genres,
-                keywords=kw_list,
-                top_n=6
-            )
-            st.markdown(f"**Top Simulated Cold-Start Recommendations:**")
+    elif mode == "Cold-Start Sim":
+        section_title("Cold-Start Simulation")
+        csg = st.multiselect("Genres:", engine.all_genres, default=["Action", "Sci-Fi"])
+        csk = st.text_input("Keywords:", "matrix space future hero")
+        if st.button("Generate Simulation"):
+            kws = [w.strip() for w in csk.split() if w.strip()]
+            sr = engine.content_recommender.recommend_by_preferences(favorite_genres=csg, keywords=kws, top_n=6)
+            section_title("Simulation Results")
             cols = st.columns(3)
-            for idx, r in enumerate(sim_recs):
-                with cols[idx % 3]:
-                    st.markdown(f"""
-                    <div style="background: #171923; border: 1px solid #2d3748; border-radius: 10px; padding: 14px; margin-bottom: 12px;">
-                        <h4 style="margin: 0 0 6px 0; color: #fff;">{r['clean_title']} ({r.get('year','')})</h4>
-                        <div style="color: #90cdf4; font-size: 0.8rem; margin-bottom: 6px;">{r['genres'].replace('|', ' • ')}</div>
-                        <div style="color: #48bb78; font-weight: bold; font-size: 0.85rem;">Match Score: {r['similarity_score']:.4f}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+            for i, r in enumerate(sr):
+                mp = min(99, max(60, int(r.get('similarity_score', 0.8) * 100)))
+                with cols[i % 3]:
+                    st.markdown(
+                        f'<div style="background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:16px;'
+                        f'margin-bottom:12px;border-left:3px solid #46d369;">'
+                        f'<div style="color:#fff;font-weight:800;margin-bottom:6px;">'
+                        f'{r["clean_title"]} ({r.get("year", "")})</div>'
+                        f'<div style="color:#46d369;font-size:0.78rem;margin-bottom:8px;">'
+                        f'{r["genres"].replace("|", " · ")}</div>'
+                        f'<div style="display:flex;gap:12px;">'
+                        f'<span style="color:#46d369;font-weight:900;">{mp}% Match</span>'
+                        f'<span style="color:#f5c518;">Score: {r.get("similarity_score", 0):.4f}</span>'
+                        f'</div></div>',
+                        unsafe_allow_html=True
+                    )
