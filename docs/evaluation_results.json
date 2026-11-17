@@ -1,0 +1,14 @@
+{
+    "dataset": "MovieLens Latest-Small",
+    "total_ratings": 100836,
+    "total_movies": 9742,
+    "test_sample_size": 5000,
+    "RMSE": 0.9094,
+    "MAE": 0.7015,
+    "Precision@5": 0.0021,
+    "Recall@5": 0.0011,
+    "Precision@10": 0.0072,
+    "Recall@10": 0.0056,
+    "Catalog_Coverage": 0.0157,
+    "baseline_mean_rating": 3.5
+}

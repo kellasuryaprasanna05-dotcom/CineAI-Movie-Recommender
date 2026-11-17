@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Environment variables & local secrets
+.env
+*.local
+
+# Master ZIP archives & Backup folders
+*.zip
+*_Backup/
+*Original_Backups/
+Final_ZIP_Submission/
+
+# Temporary analysis and audit scratch scripts
+inspect_*.py
+check_*.py
+test_clean_*.py
+temp_*.*
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace

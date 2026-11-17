@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CineAI | AI-Powered Movie Recommendation Platform</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+</head>
+<body>
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div style="display: flex; align-items: center; gap: 14px;">
+      <a href="#" class="brand">
+        <span>🎬 CineAI</span>
+        <span class="brand-badge">College Project</span>
+      </a>
+      <nav class="nav-links">
+        <button id="tab-trending" class="nav-btn active" onclick="switchTab('trending')">🔥 Trending</button>
+        <button id="tab-recommend" class="nav-btn" onclick="switchTab('recommend')">✨ AI Recommender</button>
+        <button id="tab-watchlist" class="nav-btn" onclick="switchTab('watchlist')">📌 Watchlist</button>
+        <button id="tab-metrics" class="nav-btn" onclick="switchTab('metrics')">📊 Evaluation</button>
+      </nav>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <div class="user-badge">
+        <span>👤 demo_cinephile</span>
+      </div>
+      <div style="font-size: 0.8rem; color: #a0aec0;">
+        <span id="catalog-count">9,742</span> Movies Ready
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container">
+    <div id="tab-controls"></div>
+    <div id="movie-container" class="movie-grid">
+      <div style="grid-column: 1/-1; text-align: center; padding: 60px; color: #a0aec0;">
+        <div style="font-size: 2rem; margin-bottom: 10px;">🎬</div>
+        <h3>Loading MovieLens Catalog...</h3>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <p>AI-Powered Movie Recommendation System (CineAI) | Production Netlify Build</p>
+      <p class="footer-team">Developed by Nella Navven (12510519), Kella Suryaprasanna (12516522), Charanya Bhandari (12512578) • Guided by Abhikesh</p>
+      <p style="font-size: 0.75rem; margin-top: 6px; color: #718096;">Dataset: GroupLens MovieLens Latest-Small (ml-latest-small) • Verified RMSE: 0.9094 | MAE: 0.7015</p>
+    </div>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
